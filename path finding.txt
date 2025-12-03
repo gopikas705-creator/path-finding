@@ -1,0 +1,212 @@
+import math
+import time
+import heapq
+from collections import defaultdict
+
+
+# ================================================================
+#   PRIORITY QUEUE (Custom binary heap with decrease-key support)
+# ================================================================
+class PriorityQueue:
+    """
+    Custom priority queue using binary heap + entry-finder.
+    Supports:
+        • push(item, priority)
+        • pop()
+        • decrease-key through push() override
+    """
+
+    def __init__(self):
+        self.heap = []
+        self.entry_finder = {}
+        self.REMOVED = "<removed>"
+        self.counter = 0  # ensures heap order stability
+
+    def push(self, item, priority):
+        if item in self.entry_finder:
+            # Mark old entry removed
+            old_entry = self.entry_finder.pop(item)
+            old_entry[-1] = self.REMOVED
+
+        self.counter += 1
+        entry = [priority, self.counter, item]
+        self.entry_finder[item] = entry
+        heapq.heappush(self.heap, entry)
+
+    def pop(self):
+        while self.heap:
+            priority, _, item = heapq.heappop(self.heap)
+            if item != self.REMOVED:
+                del self.entry_finder[item]
+                return item, priority
+        raise KeyError("Pop from empty PriorityQueue")
+
+    def __len__(self):
+        return len(self.entry_finder)
+
+
+# ================================================================
+#                          HEURISTIC FUNCTIONS
+# ================================================================
+def manhattan(a, b):
+    (x1, y1), (x2, y2) = a, b
+    return abs(x1 - x2) + abs(y1 - y2)
+
+
+def euclidean(a, b):
+    (x1, y1), (x2, y2) = a, b
+    return math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+
+
+def chebyshev(a, b):
+    (x1, y1), (x2, y2) = a, b
+    return max(abs(x1 - x2), abs(y1 - y2))
+
+
+HEURISTICS = {
+    "Manhattan": manhattan,
+    "Euclidean": euclidean,
+    "Chebyshev": chebyshev
+}
+
+
+# ================================================================
+#                     WEIGHTED GRID GRAPH
+# ================================================================
+class WeightedGrid:
+    def __init__(self, width, height, default_cost=1):
+        self.width = width
+        self.height = height
+        self.default_cost = default_cost
+        self.costs = defaultdict(lambda: default_cost)
+        self.walls = set()
+
+    def in_bounds(self, node):
+        x, y = node
+        return 0 <= x < self.width and 0 <= y < self.height
+
+    def passable(self, node):
+        return node not in self.walls
+
+    def neighbors(self, node):
+        (x, y) = node
+        dirs = [(1, 0), (-1, 0), (0, 1), (0, -1),
+                (1, 1), (1, -1), (-1, 1), (-1, -1)]   # allow diagonals
+
+        for dx, dy in dirs:
+            nb = (x + dx, y + dy)
+            if self.in_bounds(nb) and self.passable(nb):
+                yield nb
+
+    def set_cost(self, node, cost):
+        self.costs[node] = cost
+
+    def set_wall(self, node):
+        self.walls.add(node)
+
+    def cost(self, node):
+        return self.costs[node]
+
+
+# ================================================================
+#                           A* SEARCH
+# ================================================================
+def a_star(grid, start, goal, heuristic):
+    frontier = PriorityQueue()
+    frontier.push(start, 0)
+
+    came_from = {}
+    g_score = {start: 0}
+
+    nodes_expanded = 0
+    start_time = time.time()
+
+    while len(frontier) > 0:
+        current, _ = frontier.pop()
+        nodes_expanded += 1
+
+        if current == goal:
+            end_time = time.time()
+            # reconstruct path
+            path = []
+            node = current
+            while node in came_from:
+                path.append(node)
+                node = came_from[node]
+            path.append(start)
+            path.reverse()
+
+            return {
+                "path": path,
+                "cost": g_score[goal],
+                "nodes_expanded": nodes_expanded,
+                "runtime": end_time - start_time,
+            }
+
+        for nb in grid.neighbors(current):
+            dx = nb[0] - current[0]
+            dy = nb[1] - current[1]
+            move_cost = math.hypot(dx, dy)
+
+            new_cost = g_score[current] + move_cost * grid.cost(nb)
+
+            if nb not in g_score or new_cost < g_score[nb]:
+                g_score[nb] = new_cost
+                priority = new_cost + heuristic(nb, goal)
+                frontier.push(nb, priority)
+                came_from[nb] = current
+
+    # If no path found
+    end_time = time.time()
+    return {
+        "path": None,
+        "cost": math.inf,
+        "nodes_expanded": nodes_expanded,
+        "runtime": end_time - start_time,
+    }
+
+
+# ================================================================
+#                CHALLENGING GRID FOR COMPARISON
+# ================================================================
+def build_test_map():
+    grid = WeightedGrid(20, 15, default_cost=1)
+
+    # Add walls
+    for x in range(5, 15):
+        grid.set_wall((x, 7))
+
+    # Add weighted (expensive) terrain
+    for x in range(2, 8):
+        for y in range(2, 5):
+            grid.set_cost((x, y), 4)
+
+    # Add fast low-cost corridor
+    for y in range(0, 15):
+        grid.set_cost((10, y), 0.5)
+
+    start = (1, 1)
+    goal = (18, 13)
+
+    return grid, start, goal
+
+
+# ================================================================
+#                    RUN EXPERIMENT & REPORT
+# ================================================================
+def main():
+    grid, start, goal = build_test_map()
+    print("\n========== A* Heuristic Comparison ==========\n")
+
+    for name, h in HEURISTICS.items():
+        print(f"Running: {name}")
+        result = a_star(grid, start, goal, h)
+
+        print(f"  Path Found:       {result['path'] is not None}")
+        print(f"  Path Cost:        {result['cost']:.2f}")
+        print(f"  Nodes Expanded:   {result['nodes_expanded']}")
+        print(f"  Runtime (sec):    {result['runtime']:.6f}\n")
+
+
+if __name__ == "__main__":
+    main()
